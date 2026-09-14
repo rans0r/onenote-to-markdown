@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+
+# never commit notebooks or exports
+*.one
+*.onetoc2
+*.onepkg
+onenote-md/
