@@ -36,6 +36,26 @@ which those readers reject.
 ([MS‑FSSHTTPB], [MS‑ONESTORE], [MS‑ONE]) and walks the resulting object graph
 into Markdown. Everything is pure Python and standard library.
 
+## A clean export for Markdown readers
+
+Add `--tidy` to get a clean export for Markdown readers, such as
+[Skysa Notes](https://skysa.com/), in the same run:
+
+```bash
+python -m onenote_to_markdown "Work Notebook/" "Personal/" -o notes --tidy
+```
+
+It removes the index files, older versions, deleted and blank pages, gives
+proper titles to pages OneNote named after a cut-off first line or a URL,
+turns pages with sub-pages into folders, moves each image next to its page,
+and keeps only `title`, `created` and `modified` in the front matter. Your
+notes' text is never edited, and every change is listed in a report
+(`notes-tidy-report/`). That report also flags possible passwords and keys
+for you to review. `--tidy-llm` lets Claude name image-only pages and
+generically named images.
+See **[docs/tidy.md](docs/tidy.md)** for details, and for cleaning an export
+you already have.
+
 ## Getting your `.one` files
 
 OneDrive's web UI hides notebook internals — there is no *Download* on a
@@ -60,6 +80,7 @@ python -m onenote_to_markdown "My Notebook/" -o notes
 
 ```
 python -m onenote_to_markdown <notebook-folder | file.one ...> [-o DIR] [--versions] [--json] [--notebook NAME]
+                              [--tidy [--tidy-llm] [--tidy-skip STEPS] [--tidy-renames CSV]]
 ```
 
 | option | effect |
@@ -68,6 +89,10 @@ python -m onenote_to_markdown <notebook-folder | file.one ...> [-o DIR] [--versi
 | `--versions` | also export the older page versions OneNote keeps inside the file (`_versions/`) |
 | `--json` | dump each page's raw object tree as JSON (`_json/`) — a lossless safety net if the Markdown rendering misses something |
 | `--notebook NAME` | override the notebook name (defaults to the folder containing the `.one` files) |
+| `--tidy` | clean the export for Markdown note apps and write a report to `<DIR>-tidy-report/` ([docs/tidy.md](docs/tidy.md)) |
+| `--tidy-llm` | with `--tidy`, let Claude name untitled pages and generically named images (`pip install anthropic`, Python 3.10+, `ANTHROPIC_API_KEY`) |
+| `--tidy-skip STEPS` | with `--tidy`, comma-separated steps to leave out |
+| `--tidy-renames CSV` | with `--tidy`, apply titles from an edited `renames.csv` |
 
 Pass a notebook folder to convert every section in it (recursively, so
 section groups such as `OneNote_RecycleBin/` become sub-folders), or
@@ -75,7 +100,9 @@ individual `.one` files.
 
 Each page becomes one Markdown file with YAML front matter (`title`,
 `notebook`, `section`, `level` — 1 for pages, 2+ for sub-pages — `created`,
-`modified`), an H1 title, the page's date/time line, and the body.
+`modified`), an H1 title, the page's date/time line, and the body. With
+`--tidy`, sub-pages become folders and only `title`, `created` and `modified`
+stay.
 
 ## What is preserved
 
@@ -135,7 +162,8 @@ renders wrongly.
 onenote_to_markdown/
 ├── fsshttpb.py   MS-FSSHTTPB container: stream objects, data elements, object groups
 ├── onestore.py   MS-ONESTORE / MS-ONE object layer: property sets, object graph, revisions
-└── cli.py        MS-ONE node semantics and the Markdown renderer
+├── cli.py        MS-ONE node semantics and the Markdown renderer
+└── tidy/         --tidy: cleans an export for Markdown note apps (docs/tidy.md)
 ```
 
 A `.one` file from OneDrive is a 64-byte header (`guidFileFormat =

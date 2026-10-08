@@ -27,14 +27,15 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+llm = ["anthropic>=1.12; python_version >= '3.10'"]
+dev = ["pytest>=7", "anthropic>=1.12; python_version >= '3.10'"]
 
 [project.urls]
 Homepage = "https://github.com/rans0r/onenote-to-markdown"
 Issues = "https://github.com/rans0r/onenote-to-markdown/issues"
 
 [tool.setuptools]
-packages = ["onenote_to_markdown"]
+packages = ["onenote_to_markdown", "onenote_to_markdown.tidy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

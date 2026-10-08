@@ -13,3 +13,5 @@ venv/
 *.onetoc2
 *.onepkg
 onenote-md/
+*-tidy/
+*-tidy-report/
