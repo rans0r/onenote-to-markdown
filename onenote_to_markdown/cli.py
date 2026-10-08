@@ -10,6 +10,7 @@ disk are a different container – see README.)
 Usage:
     python -m onenote_to_markdown <notebook-folder | file.one ...> -o OUTPUT_DIR
         [--versions] [--json] [--notebook NAME] [--version]
+        [--tidy [--tidy-llm] [--tidy-skip STEPS] [--tidy-renames CSV]]
 
 Output layout:
     OUTPUT_DIR/<Notebook>/<Section>/
@@ -18,6 +19,11 @@ Output layout:
         assets/                       – images / embedded files
         _versions/                    – older page versions (with --versions)
         _json/                        – raw property dumps (with --json)
+
+With --tidy the same run also cleans the export up for Markdown note apps:
+index files, deleted pages and blank pages go, sub-pages become folders,
+images sit next to their pages, and a report lands in OUTPUT_DIR-tidy-report.
+See docs/tidy.md.
 """
 from __future__ import annotations
 
@@ -105,6 +111,19 @@ def safe_name(s: str, limit: int = 80) -> str:
     s = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", " ", s).strip().rstrip(".")
     s = re.sub(r"\s+", " ", s)
     return (s[:limit].rstrip() or "Untitled")
+
+
+_MD_PATH_ESCAPES = {"%": "%25", " ": "%20", "(": "%28", ")": "%29", "<": "%3C", ">": "%3E", "#": "%23", "?": "%3F"}
+
+
+def md_path(path: str) -> str:
+    """A relative path as a Markdown link destination.
+
+    Spaces and parentheses end a destination in CommonMark, so they (and `%`,
+    which would otherwise read as an escape) are percent-encoded; other
+    characters, including non-ASCII letters, stay readable.
+    """
+    return "".join(_MD_PATH_ESCAPES.get(c, c) for c in path)
 
 
 # ----------------------------------------------------------------------------
@@ -380,7 +399,7 @@ class MarkdownRenderer:
         link = utf16(img.get(P["WzHyperlinkUrl"])) or next((m for m in media if m), "")
         if data:
             rel = self.write_asset(data, name or "image")
-            md = f"![{alt}]({rel})"
+            md = f"![{alt}]({md_path(rel)})"
             return f"[{md}]({link})" if link else md
         if link:
             return f"[{alt}]({link})"
@@ -392,7 +411,7 @@ class MarkdownRenderer:
         name = utf16(node.get(P["EmbeddedFileName"])) or "attachment"
         if holder and holder.file_data:
             rel = self.write_asset(holder.file_data, name)
-            return f"📎 [{name}]({rel})"
+            return f"📎 [{name}]({md_path(rel)})"
         self.warn(f"embedded file without data ({name!r})")
         return f"📎 {name} (data missing)"
 
@@ -636,7 +655,7 @@ def export_section(one_path: str, out_root: str, notebook: str, opts, group: str
             f.write(f"# {p.title}\n\n")
             f.write(p.body)
         indent = "&nbsp;&nbsp;&nbsp;" * (p.level - 1)
-        index.append(f"| {i} | {indent}[{p.title}]({fname.replace(' ', '%20')}) | {p.level} | "
+        index.append(f"| {i} | {indent}[{p.title}]({md_path(fname)}) | {p.level} | "
                      f"{iso(p.created)} | {iso(p.modified)} | {p.paragraphs} | {p.text_chars} |")
         stats["pages"] += 1
         stats["chars"] += p.text_chars
@@ -744,13 +763,20 @@ def main(argv=None):
     ap.add_argument("--versions", action="store_true", help="also export older page versions")
     ap.add_argument("--json", action="store_true", help="also dump raw page structure as JSON")
     ap.add_argument("--notebook", help="override the notebook name used for the output folder")
+    from .tidy.cli import add_exporter_arguments, export_and_tidy, wants_tidy
+    add_exporter_arguments(ap)
     opts = ap.parse_args(argv)
+    if wants_tidy(opts):
+        return export_and_tidy(opts, lambda out_root: export_all(opts, out_root))
+    return export_all(opts, opts.output)
 
+
+def export_all(opts, out_root: str) -> int:
     total = []
     for one_path, notebook, group in find_sections(opts.inputs):
         nb = opts.notebook or notebook
         try:
-            st = export_section(one_path, opts.output, nb, opts, group)
+            st = export_section(one_path, out_root, nb, opts, group)
         except Exception as e:  # keep going with other sections
             print(f"ERROR {one_path}: {e}", file=sys.stderr)
             raise
@@ -764,7 +790,7 @@ def main(argv=None):
     if not total:
         print("no .one files found", file=sys.stderr)
         return 1
-    write_notebook_index(opts.output, total)
+    write_notebook_index(out_root, total)
     return 0
 
 
@@ -777,7 +803,7 @@ def write_notebook_index(out_root: str, stats: List[dict]):
         for st in items:
             label = (st["group"] + " / " if st["group"] else "") + st["section"]
             link = "/".join(safe_name(x) for x in ([st["group"]] if st["group"] else []) + [st["section"]]) + "/README.md"
-            lines.append(f"| [{label}]({link.replace(' ', '%20')}) | {st['pages']} | {st['versions']} | "
+            lines.append(f"| [{label}]({md_path(link)}) | {st['pages']} | {st['versions']} | "
                          f"{st['paragraphs']} | {st['chars']} |")
         with open(os.path.join(out_root, safe_name(nb), "README.md"), "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")

@@ -53,3 +53,9 @@ def test_hyperlink_field_code_in_text():
     r = cli.MarkdownRenderer(None, "/tmp/unused")
     out = r.rich_text(Space(), Node('﷟HYPERLINK "https://example.com"Example'))
     assert out == "[Example](https://example.com)"
+
+
+def test_md_path_escapes_link_breaking_characters():
+    assert cli.md_path("assets/Flight Receipt (NYC - SFO).pdf") == "assets/Flight%20Receipt%20%28NYC%20-%20SFO%29.pdf"
+    assert cli.md_path("a/100% #1?.png") == "a/100%25%20%231%3F.png"
+    assert cli.md_path("café/<x>.md") == "café/%3Cx%3E.md"
