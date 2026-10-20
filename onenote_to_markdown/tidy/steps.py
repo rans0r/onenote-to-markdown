@@ -18,6 +18,8 @@ from ..cli import safe_name
 from . import naming as N
 from .vault import NUMBERED, Note, Vault, common_dir, key
 
+from urllib.parse import unquote
+
 JUNK_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized"}
 INDEX_TABLE = re.compile(r"^\| (?:#|Section|Notebook) \| (?:Page|Pages|Sections) \|", re.M)
 DATE_LINE = re.compile(r"^\*[^*\n]*\b(?:1[89]|20)\d\d\b[^*\n]*\*[ \t]*$")
@@ -198,6 +200,129 @@ def evernote_names(v: Vault, ctx: Context):
         target = v.unique_dir(posixpath.join(parent, renames[d]) if parent else renames[d])
         for item in [i for i in v.alive() if i.path.startswith(d + "/")]:
             v.place(item, target + item.path[len(d):], "evernote-names")
+
+def onenote_links(v: Vault, ctx: Context):
+    """Convert internal OneNote page links to local Markdown links.
+
+    OneNote links contain the target page title, for example:
+
+        onenote:#Lektion%201%20-%20Effektiv%20respons
+            &section-id={...}
+            &page-id={...}
+
+    Resolve that title against the exported pages and replace the
+    OneNote URL with a link to the target page's original Markdown path.
+
+    Vault.finalize_links() will later rewrite the link to the target's
+    final location after titles, nesting and other tidy steps have run.
+    """
+    from . import links as L
+
+    # Build an index of exported pages by OneNote title.
+    # Keep a list for each title so duplicate titles are detected
+    # instead of silently linking to the wrong page.
+    by_title: Dict[str, List[Note]] = {}
+
+    for target_note in v.notes():
+        if not is_page(target_note):
+            continue
+
+        # Normally orig_title and title are identical at this point,
+        # but indexing both makes this step tolerant of earlier changes.
+        for title in {target_note.orig_title.strip(), target_note.title.strip()}:
+            if not title:
+                continue
+
+            bucket = by_title.setdefault(title.casefold(), [])
+
+            # Avoid adding the same Note twice when both titles are equal.
+            if target_note not in bucket:
+                bucket.append(target_note)
+
+    # Scan every exported page for Markdown links whose destination
+    # is a OneNote URL.
+    for note in v.notes():
+        if not is_page(note):
+            continue
+
+        body = note.body
+        replacements = []
+
+        for link in L.iter_links(body):
+            # Images are irrelevant here.
+            if link.is_image:
+                continue
+
+            dest = link.dest.strip()
+
+            if not dest.lower().startswith("onenote:"):
+                continue
+
+            # Example:
+            #
+            # onenote:#Lektion%201%20-%20Effektiv%20respons
+            #   &section-id={...}
+            #   &page-id={...}
+            #
+            # Everything between '#' and the first '&' is the
+            # URL-encoded OneNote page title.
+            target = dest[len("onenote:"):]
+
+            # OneNote links may point either within the current .one file:
+            #   onenote:#Page%20Title&section-id=...
+            #
+            # or to another .one file:
+            #   onenote:Other%20Section.one#Page%20Title&section-id=...
+            #
+            # In both cases, the page title follows '#'.
+            if "#" not in target:
+                continue
+
+            _, page_part = target.rsplit("#", 1)
+            encoded_title = page_part.split("&", 1)[0]
+            target_title = unquote(encoded_title).strip()
+
+            if not target_title:
+                continue
+
+            matches = by_title.get(target_title.casefold(), [])
+
+            # Do not guess if the target cannot be identified uniquely.
+            if len(matches) != 1:
+                continue
+
+            target_note = matches[0]
+
+            # The local link must initially point to target_note.orig,
+            # because Vault.resolve() resolves links relative to the
+            # source page's original location.
+            source_dir = posixpath.dirname(note.orig) or "."
+            relative = posixpath.relpath(target_note.orig, source_dir)
+
+            # Encode spaces and other characters exactly as normal
+            # Markdown links produced by the exporter.
+            relative = L.encode(relative)
+
+            replacements.append(
+                (link.start, link.end, relative)
+            )
+
+        if not replacements:
+            continue
+
+        # Work backwards through the text so replacing one destination
+        # cannot invalidate offsets belonging to later links.
+        for start, end, replacement in reversed(replacements):
+            body = body[:start] + replacement + body[end:]
+
+        note.body = body
+
+        v.log(
+            "onenote-links",
+            "edit",
+            note,
+            f"converted {len(replacements)} OneNote link(s)",
+        )
 
 
 def titles(v: Vault, ctx: Context):
@@ -388,6 +513,7 @@ STEPS: List[Tuple[str, Callable[[Vault, Context], None], str]] = [
     ("blank-pages", blank_pages, "remove pages with nothing but a title and date"),
     ("chunks", chunks, "merge 'Pages 1-100'-style sections into their notebook folder"),
     ("evernote-names", evernote_names, "drop ' (Evernote import on …)' from folder names"),
+    ("onenote-links", onenote_links, "convert internal OneNote page links to local Markdown links"),
     ("titles", titles, "retitle pages named after a cut-off first line, a URL or code, or Untitled"),
     ("header", header, "remove the '# Title' heading and date line that repeat the front matter"),
     ("nest", nest, "turn pages that have sub-pages into folders"),
