@@ -89,8 +89,6 @@ def title_problem(title: str, first: str) -> Optional[str]:
         return "stray quote marks"
     if CODEISH.search(t):
         return "URL, email or code"
-    if len(t) > 80:
-        return "too long"
     nt, nf = norm(t), norm(first)
     if len(t) >= 30 and len(nf) > len(nt) and nf.startswith(nt):
         return "cut-off first line"
