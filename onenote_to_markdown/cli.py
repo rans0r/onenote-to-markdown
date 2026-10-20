@@ -391,8 +391,20 @@ class MarkdownRenderer:
     def image(self, sp, img) -> str:
         holder = sp.node(img.get(P["PictureContainer"]))
         data = holder.file_data if holder else None
-        name = utf16(img.get(P["ImageFilename"]))
-        alt = utf16(img.get(P["ImageAltText"])) or name or "image"
+        name = utf16(img.get(P["ImageFilename"]))        
+        alt = utf16(img.get(P["ImageAltText"])).strip()
+
+        # OneNote may store OCR or generated image text as ImageAltText.
+        # Avoid embedding multiline, very long, or hashtag-heavy generated
+        # text in Markdown image syntax.
+        if (
+            not alt
+            or "\n" in alt
+            or len(alt) > 200
+            or len(re.findall(r"#\w+", alt)) >= 2
+        ):
+            alt = name or "image"
+
         # an embedded online video keeps its URL in a child media node
         media = [utf16(m.get(P["MediaUrl"])) for m in self.kids(sp, img, P["ContentChildNodes"])
                  if m.jcid == J["EmbeddedMedia"]]
